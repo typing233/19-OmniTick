@@ -10,6 +10,7 @@ import TicketList from './pages/Tickets/TicketList';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import LabelList from './pages/Labels/LabelList';
 import UserList from './pages/Users/UserList';
+import EmailAccountList from './pages/EmailAccounts/EmailAccountList';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -43,6 +44,7 @@ function App() {
                 <Route path="tickets/:id" element={<TicketDetail />} />
                 <Route path="labels" element={<LabelList />} />
                 <Route path="users" element={<UserList />} />
+                <Route path="email-accounts" element={<EmailAccountList />} />
               </Route>
             </Routes>
           </BrowserRouter>

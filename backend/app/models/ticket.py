@@ -55,5 +55,5 @@ class Ticket(Base, TimestampMixin):
 
     assignee = relationship("User", back_populates="assigned_tickets")
     labels = relationship("Label", secondary=ticket_labels, back_populates="tickets")
-    messages = relationship("TicketMessage", back_populates="ticket", order_by="TicketMessage.created_at")
-    audit_logs = relationship("TicketAuditLog", back_populates="ticket", order_by="TicketAuditLog.created_at")
+    messages = relationship("TicketMessage", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketMessage.created_at")
+    audit_logs = relationship("TicketAuditLog", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketAuditLog.created_at")

@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Tag, Button, Space, Select, Tabs, Timeline,
-  Input, message, Popconfirm, Spin, Divider,
+  Input, message, Popconfirm, Spin, Divider, Modal, Form,
 } from 'antd';
 import {
-  ArrowLeftOutlined, SendOutlined, DeleteOutlined,
+  ArrowLeftOutlined, SendOutlined, DeleteOutlined, EditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { ticketApi, labelApi, userApi } from '../../api';
+import { ticketApi, labelApi, userApi, emailAccountApi } from '../../api';
 import type { TicketStatus, TicketMessage, AuditLog } from '../../types';
 
 const STATUS_MAP: Record<TicketStatus, { color: string; label: string }> = {
@@ -18,6 +18,13 @@ const STATUS_MAP: Record<TicketStatus, { color: string; label: string }> = {
   pending_response: { color: 'gold', label: '待回应' },
   resolved: { color: 'green', label: '已解决' },
   closed: { color: 'default', label: '已关闭' },
+};
+
+const PRIORITY_MAP: Record<string, { color: string; label: string }> = {
+  low: { color: 'default', label: '低' },
+  medium: { color: 'blue', label: '中' },
+  high: { color: 'orange', label: '高' },
+  urgent: { color: 'red', label: '紧急' },
 };
 
 const TRANSITIONS: Record<TicketStatus, { value: TicketStatus; label: string }[]> = {
@@ -33,6 +40,8 @@ const TicketDetail: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [replyText, setReplyText] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm] = Form.useForm();
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -54,6 +63,7 @@ const TicketDetail: React.FC = () => {
 
   const { data: labels } = useQuery({ queryKey: ['labels'], queryFn: labelApi.list });
   const { data: users } = useQuery({ queryKey: ['users'], queryFn: userApi.list });
+  const { data: emailAccounts } = useQuery({ queryKey: ['email-accounts'], queryFn: emailAccountApi.list });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['ticket', id] });
@@ -91,6 +101,22 @@ const TicketDetail: React.FC = () => {
     onSuccess: () => { message.success('工单已删除'); navigate('/tickets'); },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (data: { subject?: string; priority?: string; requester_email?: string; email_account_id?: string }) =>
+      ticketApi.update(id!, data),
+    onSuccess: () => { message.success('工单已更新'); setEditOpen(false); invalidate(); },
+  });
+
+  const openEditModal = () => {
+    editForm.setFieldsValue({
+      subject: ticket!.subject,
+      priority: ticket!.priority,
+      requester_email: ticket!.requester_email || '',
+      email_account_id: ticket!.email_account_id || undefined,
+    });
+    setEditOpen(true);
+  };
+
   if (isLoading || !ticket) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
 
   const statusInfo = STATUS_MAP[ticket.status];
@@ -100,7 +126,8 @@ const TicketDetail: React.FC = () => {
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/tickets')}>返回</Button>
         <h2 style={{ margin: 0, flex: 1 }}>{ticket.subject}</h2>
-        <Popconfirm title="确认删除此工单?" onConfirm={() => deleteMutation.mutate()}>
+        <Button icon={<EditOutlined />} onClick={openEditModal}>编辑</Button>
+        <Popconfirm title="确认删除此工单？" onConfirm={() => deleteMutation.mutate()}>
           <Button danger icon={<DeleteOutlined />}>删除</Button>
         </Popconfirm>
       </div>
@@ -111,9 +138,12 @@ const TicketDetail: React.FC = () => {
             <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="优先级">
-            <Tag>{ticket.priority}</Tag>
+            <Tag color={PRIORITY_MAP[ticket.priority]?.color}>{PRIORITY_MAP[ticket.priority]?.label}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="请求者">{ticket.requester_email || '-'}</Descriptions.Item>
+          <Descriptions.Item label="邮件渠道">
+            {emailAccounts?.find((a) => a.id === ticket.email_account_id)?.name || '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="创建时间">{dayjs(ticket.created_at).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{dayjs(ticket.updated_at).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
         </Descriptions>
@@ -206,6 +236,11 @@ const TicketDetail: React.FC = () => {
                   发送
                 </Button>
               </div>
+              {ticket.email_account_id && ticket.requester_email && (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                  回复将通过邮件发送至 {ticket.requester_email}
+                </div>
+              )}
             </div>
           ),
         },
@@ -231,6 +266,31 @@ const TicketDetail: React.FC = () => {
           ),
         },
       ]} />
+
+      <Modal
+        title="编辑工单" open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.submit()}
+        confirmLoading={updateMutation.isPending}
+      >
+        <Form form={editForm} layout="vertical" onFinish={(v) => updateMutation.mutate(v)}>
+          <Form.Item name="subject" label="主题" rules={[{ required: true, message: '请输入主题' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="priority" label="优先级">
+            <Select options={Object.entries(PRIORITY_MAP).map(([k, v]) => ({ value: k, label: v.label }))} />
+          </Form.Item>
+          <Form.Item name="requester_email" label="请求者邮箱">
+            <Input placeholder="customer@example.com" />
+          </Form.Item>
+          <Form.Item name="email_account_id" label="关联邮件渠道">
+            <Select
+              allowClear placeholder="选择邮件账号（用于发送回复）"
+              options={emailAccounts?.map((a) => ({ value: a.id, label: `${a.name} (${a.email_address})` })) || []}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

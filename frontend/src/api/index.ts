@@ -1,6 +1,21 @@
 import client from './client';
 import type { Ticket, TicketListResponse, TicketMessage, AuditLog, Label, User } from '../types';
 
+export interface EmailAccount {
+  id: string;
+  name: string;
+  email_address: string;
+  imap_host: string;
+  imap_port: number;
+  smtp_host: string;
+  smtp_port: number;
+  username: string;
+  is_active: boolean;
+  poll_interval_seconds: number;
+  last_polled_at: string | null;
+  created_at: string;
+}
+
 export interface TicketFilters {
   page?: number;
   page_size?: number;
@@ -18,7 +33,7 @@ export const ticketApi = {
   create: (data: { subject: string; priority?: string; assignee_id?: string; requester_email?: string; body?: string; label_ids?: string[] }) =>
     client.post<Ticket>('/tickets', data).then((r) => r.data),
 
-  update: (id: string, data: { subject?: string; priority?: string }) =>
+  update: (id: string, data: { subject?: string; priority?: string; requester_email?: string; email_account_id?: string }) =>
     client.patch<Ticket>(`/tickets/${id}`, data).then((r) => r.data),
 
   delete: (id: string) => client.delete(`/tickets/${id}`),
@@ -62,4 +77,13 @@ export const authApi = {
   login: (email: string, password: string) =>
     client.post<{ access_token: string; token_type: string }>('/auth/login', { email, password }).then((r) => r.data),
   me: () => client.get<User>('/auth/me').then((r) => r.data),
+};
+
+export const emailAccountApi = {
+  list: () => client.get<EmailAccount[]>('/email-accounts').then((r) => r.data),
+  create: (data: { name: string; email_address: string; imap_host: string; imap_port?: number; smtp_host: string; smtp_port?: number; username: string; password: string; poll_interval_seconds?: number }) =>
+    client.post<EmailAccount>('/email-accounts', data).then((r) => r.data),
+  update: (id: string, data: Record<string, unknown>) =>
+    client.patch<EmailAccount>(`/email-accounts/${id}`, data).then((r) => r.data),
+  delete: (id: string) => client.delete(`/email-accounts/${id}`),
 };

@@ -6,6 +6,7 @@ import {
   TagsOutlined,
   TeamOutlined,
   LogoutOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -20,6 +21,7 @@ const AdminLayout: React.FC = () => {
     { key: '/tickets', icon: <FileTextOutlined />, label: '工单管理' },
     { key: '/labels', icon: <TagsOutlined />, label: '标签管理' },
     { key: '/users', icon: <TeamOutlined />, label: '用户管理' },
+    { key: '/email-accounts', icon: <MailOutlined />, label: '邮件渠道' },
   ];
 
   const selectedKey = '/' + location.pathname.split('/')[1];

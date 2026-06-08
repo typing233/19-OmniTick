@@ -144,6 +144,15 @@ async def update_ticket(
             old_value=ticket.priority.value, new_value=body.priority.value,
         ))
         ticket.priority = body.priority
+    if body.requester_email is not None and body.requester_email != ticket.requester_email:
+        db.add(TicketAuditLog(
+            id=gen_id(), ticket_id=ticket.id, actor_id=current_user.id,
+            action="field_change", field_name="requester_email",
+            old_value=ticket.requester_email, new_value=body.requester_email,
+        ))
+        ticket.requester_email = body.requester_email
+    if body.email_account_id is not None and body.email_account_id != ticket.email_account_id:
+        ticket.email_account_id = body.email_account_id
 
     await db.commit()
     await db.refresh(ticket, ["labels", "assignee"])
@@ -156,10 +165,19 @@ async def delete_ticket(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+    result = await db.execute(
+        select(Ticket)
+        .options(
+            selectinload(Ticket.messages),
+            selectinload(Ticket.audit_logs),
+            selectinload(Ticket.labels),
+        )
+        .where(Ticket.id == ticket_id)
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket.labels.clear()
     await db.delete(ticket)
     await db.commit()
 

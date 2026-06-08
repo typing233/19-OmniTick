@@ -24,6 +24,7 @@ export interface Ticket {
   assignee_id: string | null;
   assignee: { id: string; display_name: string; email: string } | null;
   requester_email: string | null;
+  email_account_id: string | null;
   labels: Label[];
   created_at: string;
   updated_at: string;

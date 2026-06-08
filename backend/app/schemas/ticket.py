@@ -17,6 +17,8 @@ class TicketCreate(BaseModel):
 class TicketUpdate(BaseModel):
     subject: Optional[str] = None
     priority: Optional[TicketPriority] = None
+    requester_email: Optional[str] = None
+    email_account_id: Optional[str] = None
 
 
 class TicketTransition(BaseModel):
@@ -57,6 +59,7 @@ class TicketOut(BaseModel):
     assignee_id: Optional[str] = None
     assignee: Optional[AssigneeBrief] = None
     requester_email: Optional[str] = None
+    email_account_id: Optional[str] = None
     labels: list[LabelBrief] = []
     created_at: datetime
     updated_at: datetime
