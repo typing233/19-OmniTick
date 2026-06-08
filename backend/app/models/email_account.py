@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, Integer, DateTime
+from sqlalchemy import String, Boolean, Integer, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin, gen_id
@@ -22,4 +22,7 @@ class EmailAccount(Base, TimestampMixin):
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=60)
     last_polled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), index=True
     )

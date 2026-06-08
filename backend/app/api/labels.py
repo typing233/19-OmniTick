@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_tenant_id
 from app.models.user import User
 from app.models.label import Label
 from app.models.base import gen_id
@@ -16,8 +16,11 @@ router = APIRouter(prefix="/labels", tags=["labels"])
 async def list_labels(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(Label).order_by(Label.name))
+    result = await db.execute(
+        select(Label).where(Label.tenant_id == tenant_id).order_by(Label.name)
+    )
     return result.scalars().all()
 
 
@@ -26,12 +29,15 @@ async def create_label(
     body: LabelCreate,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    existing = await db.execute(select(Label).where(Label.name == body.name))
+    existing = await db.execute(
+        select(Label).where(Label.name == body.name, Label.tenant_id == tenant_id)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Label already exists")
 
-    label = Label(id=gen_id(), name=body.name, color=body.color)
+    label = Label(id=gen_id(), name=body.name, color=body.color, tenant_id=tenant_id)
     db.add(label)
     await db.commit()
     await db.refresh(label)
@@ -44,8 +50,11 @@ async def update_label(
     body: LabelUpdate,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(Label).where(Label.id == label_id))
+    result = await db.execute(
+        select(Label).where(Label.id == label_id, Label.tenant_id == tenant_id)
+    )
     label = result.scalar_one_or_none()
     if not label:
         raise HTTPException(status_code=404, detail="Label not found")
@@ -65,8 +74,11 @@ async def delete_label(
     label_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(Label).where(Label.id == label_id))
+    result = await db.execute(
+        select(Label).where(Label.id == label_id, Label.tenant_id == tenant_id)
+    )
     label = result.scalar_one_or_none()
     if not label:
         raise HTTPException(status_code=404, detail="Label not found")

@@ -5,6 +5,7 @@ from sqlalchemy import String, ForeignKey, Table, Column, Enum, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, gen_id, utcnow
+from .tenant import Tenant
 
 
 class TicketStatus(str, enum.Enum):
@@ -49,11 +50,19 @@ class Ticket(Base, TimestampMixin):
     email_account_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("email_accounts.id"), nullable=True
     )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), index=True
+    )
+    customer_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("customers.id"), nullable=True, index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
     assignee = relationship("User", back_populates="assigned_tickets")
+    tenant = relationship("Tenant")
+    customer = relationship("Customer", back_populates="tickets")
     labels = relationship("Label", secondary=ticket_labels, back_populates="tickets")
     messages = relationship("TicketMessage", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketMessage.created_at")
     audit_logs = relationship("TicketAuditLog", back_populates="ticket", cascade="all, delete-orphan", order_by="TicketAuditLog.created_at")

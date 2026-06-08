@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import Optional
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_tenant_id
 from app.models.user import User
 from app.models.ticket import Ticket, TicketStatus, ticket_labels
 from app.models.label import Label
@@ -31,9 +31,12 @@ async def list_tickets(
     label_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    query = select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-    count_query = select(func.count(Ticket.id))
+    query = select(Ticket).options(
+        selectinload(Ticket.labels), selectinload(Ticket.assignee)
+    ).where(Ticket.tenant_id == tenant_id)
+    count_query = select(func.count(Ticket.id)).where(Ticket.tenant_id == tenant_id)
 
     if status_filter:
         query = query.where(Ticket.status == status_filter)
@@ -59,6 +62,7 @@ async def create_ticket(
     body: TicketCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     ticket = Ticket(
         id=gen_id(),
@@ -66,10 +70,13 @@ async def create_ticket(
         priority=body.priority,
         assignee_id=body.assignee_id,
         requester_email=body.requester_email,
+        tenant_id=tenant_id,
     )
 
     if body.label_ids:
-        result = await db.execute(select(Label).where(Label.id.in_(body.label_ids)))
+        result = await db.execute(
+            select(Label).where(Label.id.in_(body.label_ids), Label.tenant_id == tenant_id)
+        )
         ticket.labels = list(result.scalars().all())
 
     db.add(ticket)
@@ -103,11 +110,12 @@ async def get_ticket(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket)
         .options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -121,10 +129,11 @@ async def update_ticket(
     body: TicketUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -164,6 +173,7 @@ async def delete_ticket(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket)
@@ -172,7 +182,7 @@ async def delete_ticket(
             selectinload(Ticket.audit_logs),
             selectinload(Ticket.labels),
         )
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -188,10 +198,11 @@ async def transition_ticket(
     body: TicketTransition,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -214,10 +225,11 @@ async def assign_ticket(
     body: TicketAssign,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -241,16 +253,19 @@ async def attach_labels(
     body: TicketLabelAttach,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    labels_result = await db.execute(select(Label).where(Label.id.in_(body.label_ids)))
+    labels_result = await db.execute(
+        select(Label).where(Label.id.in_(body.label_ids), Label.tenant_id == tenant_id)
+    )
     new_labels = list(labels_result.scalars().all())
     for label in new_labels:
         if label not in ticket.labels:
@@ -272,10 +287,11 @@ async def detach_label(
     label_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
         select(Ticket).options(selectinload(Ticket.labels), selectinload(Ticket.assignee))
-        .where(Ticket.id == ticket_id)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
     )
     ticket = result.scalar_one_or_none()
     if not ticket:
@@ -305,13 +321,20 @@ async def list_messages(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
+        select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    msg_result = await db.execute(
         select(TicketMessage)
         .where(TicketMessage.ticket_id == ticket_id)
         .order_by(TicketMessage.created_at)
     )
-    return result.scalars().all()
+    return msg_result.scalars().all()
 
 
 @router.post("/{ticket_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
@@ -320,8 +343,11 @@ async def create_message(
     body: MessageCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+    result = await db.execute(
+        select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -383,10 +409,17 @@ async def get_audit_log(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
+        select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    log_result = await db.execute(
         select(TicketAuditLog)
         .where(TicketAuditLog.ticket_id == ticket_id)
         .order_by(TicketAuditLog.created_at)
     )
-    return result.scalars().all()
+    return log_result.scalars().all()

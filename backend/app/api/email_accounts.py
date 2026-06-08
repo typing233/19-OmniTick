@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_tenant_id
 from app.models.user import User
 from app.models.email_account import EmailAccount
 from app.models.base import gen_id
@@ -61,8 +61,13 @@ class EmailAccountOut(BaseModel):
 async def list_email_accounts(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(EmailAccount).order_by(EmailAccount.created_at))
+    result = await db.execute(
+        select(EmailAccount)
+        .where(EmailAccount.tenant_id == tenant_id)
+        .order_by(EmailAccount.created_at)
+    )
     return result.scalars().all()
 
 
@@ -71,6 +76,7 @@ async def create_email_account(
     body: EmailAccountCreate,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     account = EmailAccount(
         id=gen_id(),
@@ -83,6 +89,7 @@ async def create_email_account(
         username=body.username,
         password_encrypted=body.password,
         poll_interval_seconds=body.poll_interval_seconds,
+        tenant_id=tenant_id,
     )
     db.add(account)
     await db.commit()
@@ -96,8 +103,13 @@ async def update_email_account(
     body: EmailAccountUpdate,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(EmailAccount).where(EmailAccount.id == account_id))
+    result = await db.execute(
+        select(EmailAccount).where(
+            EmailAccount.id == account_id, EmailAccount.tenant_id == tenant_id
+        )
+    )
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Email account not found")
@@ -133,8 +145,13 @@ async def delete_email_account(
     account_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = await db.execute(select(EmailAccount).where(EmailAccount.id == account_id))
+    result = await db.execute(
+        select(EmailAccount).where(
+            EmailAccount.id == account_id, EmailAccount.tenant_id == tenant_id
+        )
+    )
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Email account not found")
