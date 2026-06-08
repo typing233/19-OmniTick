@@ -79,8 +79,8 @@ function App() {
                 <Route path="login" element={<PortalLogin />} />
                 <Route path="tickets" element={<PortalProtectedRoute><PortalTicketList /></PortalProtectedRoute>} />
                 <Route path="tickets/:id" element={<PortalProtectedRoute><PortalTicketDetail /></PortalProtectedRoute>} />
-                <Route path="kb" element={<PortalProtectedRoute><PortalKBHome /></PortalProtectedRoute>} />
-                <Route path="kb/:slug" element={<PortalProtectedRoute><PortalKBArticle /></PortalProtectedRoute>} />
+                <Route path="kb" element={<PortalKBHome />} />
+                <Route path="kb/:slug" element={<PortalKBArticle />} />
               </Route>
             </Routes>
           </BrowserRouter>

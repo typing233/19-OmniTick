@@ -3,13 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.database import get_db
-from app.dependencies import get_current_customer, get_portal_tenant_id
-from app.models.customer import Customer
 from app.models.kb import KBArticle, KBCategory, ArticleStatus, ArticleVisibility
 from app.schemas.portal import PortalArticleOut, PortalArticleListResponse
 from app.schemas.kb import KBCategoryTree, KBCategoryOut
 from app.schemas.search import SearchRequest, SearchResponse
 from app.core.search.engine import hybrid_search
+
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
 router = APIRouter(prefix="/portal/kb", tags=["portal-kb"])
 
@@ -20,9 +20,8 @@ async def list_published_articles(
     page_size: int = Query(20, ge=1, le=100),
     category_id: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    customer: Customer = Depends(get_current_customer),
-    tenant_id: str = Depends(get_portal_tenant_id),
 ):
+    tenant_id = DEFAULT_TENANT_ID
     base = [
         KBArticle.tenant_id == tenant_id,
         KBArticle.status == ArticleStatus.PUBLISHED,
@@ -51,9 +50,8 @@ async def list_published_articles(
 async def get_article_by_slug(
     slug: str,
     db: AsyncSession = Depends(get_db),
-    customer: Customer = Depends(get_current_customer),
-    tenant_id: str = Depends(get_portal_tenant_id),
 ):
+    tenant_id = DEFAULT_TENANT_ID
     result = await db.execute(
         select(KBArticle).where(
             KBArticle.tenant_id == tenant_id,
@@ -71,9 +69,8 @@ async def get_article_by_slug(
 @router.get("/categories", response_model=list[KBCategoryTree])
 async def list_categories(
     db: AsyncSession = Depends(get_db),
-    customer: Customer = Depends(get_current_customer),
-    tenant_id: str = Depends(get_portal_tenant_id),
 ):
+    tenant_id = DEFAULT_TENANT_ID
     result = await db.execute(
         select(KBCategory)
         .where(KBCategory.tenant_id == tenant_id)
@@ -94,9 +91,8 @@ async def list_categories(
 async def portal_search(
     body: SearchRequest,
     db: AsyncSession = Depends(get_db),
-    customer: Customer = Depends(get_current_customer),
-    tenant_id: str = Depends(get_portal_tenant_id),
 ):
+    tenant_id = DEFAULT_TENANT_ID
     items, total = await hybrid_search(
         db=db,
         tenant_id=tenant_id,

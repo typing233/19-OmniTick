@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from typing import Optional
 
 from app.database import get_db
-from app.dependencies import get_current_customer, get_portal_tenant_id
+from app.dependencies import get_current_customer, get_portal_tenant_id, optional_security
 from app.models.customer import Customer
 from app.models.ticket import Ticket, TicketStatus, TicketPriority
 from app.models.message import TicketMessage, SenderType, MessageDirection
@@ -13,7 +13,10 @@ from app.models.base import gen_id
 from app.schemas.portal import (
     PortalTicketCreate, PortalTicketOut, PortalTicketDetailOut,
     PortalTicketListResponse, PortalMessageCreate, PortalMessageOut,
+    PortalGuestTicketCreate,
 )
+
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
 router = APIRouter(prefix="/portal/tickets", tags=["portal-tickets"])
 
@@ -80,6 +83,61 @@ async def submit_ticket(
     )
     db.add(msg)
 
+    await _apply_sla_policies(db, ticket, tenant_id)
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
+
+
+@router.post("/guest", response_model=PortalTicketOut, status_code=status.HTTP_201_CREATED)
+async def submit_ticket_guest(
+    body: PortalGuestTicketCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    tenant_id = DEFAULT_TENANT_ID
+
+    result = await db.execute(
+        select(Customer).where(Customer.tenant_id == tenant_id, Customer.email == body.email)
+    )
+    customer = result.scalar_one_or_none()
+    if not customer:
+        customer = Customer(
+            id=gen_id(),
+            tenant_id=tenant_id,
+            email=body.email,
+            display_name=body.email.split("@")[0],
+            is_registered=False,
+        )
+        db.add(customer)
+        await db.flush()
+
+    ticket = Ticket(
+        id=gen_id(),
+        subject=body.subject,
+        priority=TicketPriority.MEDIUM,
+        requester_email=body.email,
+        tenant_id=tenant_id,
+        customer_id=customer.id,
+    )
+    db.add(ticket)
+
+    db.add(TicketAuditLog(
+        id=gen_id(),
+        ticket_id=ticket.id,
+        action="created",
+    ))
+
+    msg = TicketMessage(
+        id=gen_id(),
+        ticket_id=ticket.id,
+        sender_type=SenderType.CUSTOMER,
+        sender_email=body.email,
+        body_text=body.body,
+        direction=MessageDirection.INBOUND,
+    )
+    db.add(msg)
+
+    await _apply_sla_policies(db, ticket, tenant_id)
     await db.commit()
     await db.refresh(ticket)
     return ticket
@@ -176,3 +234,51 @@ async def reply_to_ticket(
     await db.commit()
     await db.refresh(msg)
     return msg
+
+
+async def _apply_sla_policies(db: AsyncSession, ticket: Ticket, tenant_id: str):
+    from app.models.automation import SlaPolicy, SlaTimer
+    from datetime import datetime, timezone, timedelta
+
+    result = await db.execute(
+        select(SlaPolicy).where(SlaPolicy.tenant_id == tenant_id, SlaPolicy.is_active == True)
+    )
+    policies = result.scalars().all()
+
+    for policy in policies:
+        if _matches_sla_conditions(policy.conditions, ticket):
+            now = datetime.now(timezone.utc)
+            timer = SlaTimer(
+                id=gen_id(),
+                ticket_id=ticket.id,
+                policy_id=policy.id,
+                response_due_at=(
+                    now + timedelta(minutes=policy.first_response_minutes)
+                    if policy.first_response_minutes else None
+                ),
+                resolution_due_at=(
+                    now + timedelta(minutes=policy.resolution_minutes)
+                    if policy.resolution_minutes else None
+                ),
+            )
+            db.add(timer)
+
+
+def _matches_sla_conditions(conditions: dict, ticket: Ticket) -> bool:
+    if not conditions:
+        return True
+    if "priority" in conditions:
+        expected = conditions["priority"]
+        if isinstance(expected, list):
+            if ticket.priority.value not in expected:
+                return False
+        elif ticket.priority.value != expected:
+            return False
+    if "status" in conditions:
+        expected = conditions["status"]
+        if isinstance(expected, list):
+            if ticket.status.value not in expected:
+                return False
+        elif ticket.status.value != expected:
+            return False
+    return True

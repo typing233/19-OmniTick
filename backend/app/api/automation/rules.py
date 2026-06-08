@@ -4,8 +4,9 @@ from sqlalchemy import select, func
 from typing import Optional
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_tenant_id
+from app.dependencies import get_current_user, get_tenant_id, require_role
 from app.models.user import User
+from app.models.user_role import RoleType
 from app.models.automation import AutomationRule, AutomationExecutionLog, TriggerEvent
 from app.models.base import gen_id
 from app.schemas.automation import (
@@ -34,7 +35,7 @@ async def list_rules(
 async def create_rule(
     body: AutomationRuleCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     rule = AutomationRule(
@@ -77,7 +78,7 @@ async def update_rule(
     rule_id: str,
     body: AutomationRuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -113,7 +114,7 @@ async def update_rule(
 async def delete_rule(
     rule_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(

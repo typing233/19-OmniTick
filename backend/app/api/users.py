@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_tenant_id
+from app.dependencies import get_current_user, get_tenant_id, require_role
 from app.models.user import User
 from app.models.user_role import UserRole, RoleType
 from app.models.base import gen_id
@@ -30,7 +30,7 @@ async def list_users(
 async def create_user(
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     existing = await db.execute(select(User).where(User.email == body.email))

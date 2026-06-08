@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Select, Button, Space, Tag, message, Tabs, List, Modal } from 'antd';
+import { Card, Form, Input, Select, Button, Space, Tag, message, Tabs, List, Modal, Timeline } from 'antd';
 import { SaveOutlined, RollbackOutlined, SendOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { kbApi } from '../../api';
@@ -35,6 +35,12 @@ const ArticleEditor: React.FC = () => {
   const { data: tags } = useQuery({
     queryKey: ['kb-tags'],
     queryFn: kbApi.listTags,
+  });
+
+  const { data: auditLogs } = useQuery({
+    queryKey: ['kb-article-audit', id],
+    queryFn: () => kbApi.getAuditLog(id!),
+    enabled: !!id,
   });
 
   useEffect(() => {
@@ -186,6 +192,28 @@ const ArticleEditor: React.FC = () => {
                     />
                   </List.Item>
                 )}
+              />
+            </Card>
+          ),
+        },
+        {
+          key: 'audit',
+          label: '审计日志',
+          children: (
+            <Card>
+              <Timeline
+                items={auditLogs?.map((log: { id: string; action: string; detail: string | null; actor_id: string | null; created_at: string }) => ({
+                  key: log.id,
+                  children: (
+                    <div>
+                      <Tag>{log.action}</Tag>
+                      {log.detail && <span style={{ marginLeft: 8 }}>{log.detail}</span>}
+                      <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                        {new Date(log.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ),
+                })) || []}
               />
             </Card>
           ),

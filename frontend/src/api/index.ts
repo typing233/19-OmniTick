@@ -100,6 +100,7 @@ export const kbApi = {
   reject: (id: string, comment?: string) =>
     client.post<KBArticle>(`/kb/articles/${id}/reject`, { comment }).then((r) => r.data),
   listPendingReviews: () => client.get<KBReview[]>('/kb/articles/reviews/pending').then((r) => r.data),
+  getAuditLog: (id: string) => client.get<Array<{ id: string; article_id: string; actor_id: string | null; action: string; detail: string | null; created_at: string }>>(`/kb/articles/${id}/audit-log`).then((r) => r.data),
   listCategories: () => client.get<KBCategory[]>('/kb/categories').then((r) => r.data),
   createCategory: (data: { name: string; slug: string; parent_id?: string; sort_order?: number }) =>
     client.post<KBCategory>('/kb/categories', data).then((r) => r.data),

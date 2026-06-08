@@ -15,7 +15,7 @@ portalClient.interceptors.request.use((config) => {
 portalClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && localStorage.getItem('portal_token')) {
       localStorage.removeItem('portal_token');
       window.location.href = '/portal/login';
     }

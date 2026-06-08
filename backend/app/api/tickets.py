@@ -100,6 +100,7 @@ async def create_ticket(
         )
         db.add(msg)
 
+    await _apply_sla_policies(db, ticket, tenant_id)
     await db.commit()
     await db.refresh(ticket, ["labels", "assignee"])
     return ticket
@@ -423,3 +424,51 @@ async def get_audit_log(
         .order_by(TicketAuditLog.created_at)
     )
     return log_result.scalars().all()
+
+
+async def _apply_sla_policies(db: AsyncSession, ticket: Ticket, tenant_id: str):
+    from app.models.automation import SlaPolicy, SlaTimer
+    from datetime import datetime, timezone, timedelta
+
+    result = await db.execute(
+        select(SlaPolicy).where(SlaPolicy.tenant_id == tenant_id, SlaPolicy.is_active == True)
+    )
+    policies = result.scalars().all()
+
+    for policy in policies:
+        if _matches_sla_conditions(policy.conditions, ticket):
+            now = datetime.now(timezone.utc)
+            timer = SlaTimer(
+                id=gen_id(),
+                ticket_id=ticket.id,
+                policy_id=policy.id,
+                response_due_at=(
+                    now + timedelta(minutes=policy.first_response_minutes)
+                    if policy.first_response_minutes else None
+                ),
+                resolution_due_at=(
+                    now + timedelta(minutes=policy.resolution_minutes)
+                    if policy.resolution_minutes else None
+                ),
+            )
+            db.add(timer)
+
+
+def _matches_sla_conditions(conditions: dict, ticket: Ticket) -> bool:
+    if not conditions:
+        return True
+    if "priority" in conditions:
+        expected = conditions["priority"]
+        if isinstance(expected, list):
+            if ticket.priority.value not in expected:
+                return False
+        elif ticket.priority.value != expected:
+            return False
+    if "status" in conditions:
+        expected = conditions["status"]
+        if isinstance(expected, list):
+            if ticket.status.value not in expected:
+                return False
+        elif ticket.status.value != expected:
+            return False
+    return True

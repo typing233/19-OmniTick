@@ -1,17 +1,16 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, literal_column
 from typing import Optional
 
 from app.models.ticket import Ticket
 from app.models.message import TicketMessage
-from app.models.kb import KBArticle, ArticleStatus
-from app.models.search import SearchIndexTicket, SearchIndexArticle, SearchSynonym
-from app.models.base import gen_id
+from app.models.kb import KBArticle, ArticleStatus, ArticleVisibility
+from app.models.search import SearchSynonym
 from app.schemas.search import SearchResultItem
 
 
-async def expand_synonyms(db: AsyncSession, tenant_id: str, query: str) -> str:
-    words = query.split()
+async def expand_synonyms(db: AsyncSession, tenant_id: str, query: str) -> list[str]:
+    words = query.lower().split()
     result = await db.execute(
         select(SearchSynonym).where(
             SearchSynonym.tenant_id == tenant_id,
@@ -20,94 +19,96 @@ async def expand_synonyms(db: AsyncSession, tenant_id: str, query: str) -> str:
     )
     synonym_map = {s.word: s.synonyms.split(",") for s in result.scalars().all()}
 
-    expanded = []
+    all_terms = list(words)
     for word in words:
-        expanded.append(word)
         if word in synonym_map:
-            expanded.extend(synonym_map[word])
-    return " | ".join(expanded)
+            all_terms.extend(synonym_map[word])
+    return all_terms
 
 
-def highlight_snippet(text_content: str, query: str, max_length: int = 200) -> str:
-    query_words = query.lower().split()
-    if not text_content:
+def build_tsquery(terms: list[str]) -> str:
+    sanitized = []
+    for t in terms:
+        clean = "".join(c for c in t.strip() if c.isalnum() or c == '_')
+        if clean:
+            sanitized.append(clean)
+    if not sanitized:
         return ""
-
-    best_pos = 0
-    for word in query_words:
-        pos = text_content.lower().find(word)
-        if pos >= 0:
-            best_pos = max(0, pos - 50)
-            break
-
-    snippet = text_content[best_pos:best_pos + max_length]
-    for word in query_words:
-        import re
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
-        snippet = pattern.sub(f"<mark>{word}</mark>", snippet)
-
-    if best_pos > 0:
-        snippet = "..." + snippet
-    if best_pos + max_length < len(text_content):
-        snippet = snippet + "..."
-    return snippet
+    return " | ".join(sanitized)
 
 
 async def search_tickets_fulltext(
     db: AsyncSession, tenant_id: str, query: str, page: int, page_size: int,
-    filters: Optional[dict] = None,
+    filters: Optional[dict] = None, terms: Optional[list[str]] = None,
 ) -> tuple[list[SearchResultItem], int]:
-    like_pattern = f"%{query}%"
+    if terms is None:
+        terms = query.lower().split()
+    tsquery_str = build_tsquery(terms)
+    if not tsquery_str:
+        return [], 0
 
-    count_q = (
-        select(func.count(Ticket.id))
-        .where(Ticket.tenant_id == tenant_id)
-        .where(
-            (Ticket.subject.ilike(like_pattern)) |
-            Ticket.id.in_(
-                select(TicketMessage.ticket_id)
-                .where(TicketMessage.body_text.ilike(like_pattern))
-            )
+    msg_subq = (
+        select(
+            TicketMessage.ticket_id,
+            func.string_agg(TicketMessage.body_text, literal_column("' '")).label("msg_text")
         )
+        .group_by(TicketMessage.ticket_id)
+        .subquery()
+    )
+
+    ts_vector = func.to_tsvector(
+        literal_column("'simple'"),
+        func.coalesce(Ticket.subject, literal_column("''")) +
+        literal_column("' '") +
+        func.coalesce(msg_subq.c.msg_text, literal_column("''"))
+    )
+    ts_query = func.to_tsquery(literal_column("'simple'"), text(f"'{tsquery_str}'"))
+
+    base_q = (
+        select(Ticket, func.ts_rank(ts_vector, ts_query).label("rank"))
+        .outerjoin(msg_subq, Ticket.id == msg_subq.c.ticket_id)
+        .where(Ticket.tenant_id == tenant_id)
+        .where(ts_vector.op("@@")(ts_query))
     )
 
     if filters:
         if filters.get("status"):
-            count_q = count_q.where(Ticket.status.in_(filters["status"]))
+            base_q = base_q.where(Ticket.status.in_(filters["status"]))
 
+    count_q = select(func.count()).select_from(base_q.subquery())
     total = (await db.execute(count_q)).scalar() or 0
 
-    q = (
-        select(Ticket)
-        .where(Ticket.tenant_id == tenant_id)
-        .where(
-            (Ticket.subject.ilike(like_pattern)) |
-            Ticket.id.in_(
-                select(TicketMessage.ticket_id)
-                .where(TicketMessage.body_text.ilike(like_pattern))
-            )
-        )
-        .order_by(Ticket.updated_at.desc())
+    data_q = (
+        base_q
+        .order_by(text("rank DESC"))
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-
-    if filters:
-        if filters.get("status"):
-            q = q.where(Ticket.status.in_(filters["status"]))
-
-    result = await db.execute(q)
-    tickets = result.scalars().all()
+    result = await db.execute(data_q)
+    rows = result.all()
 
     items = []
-    for ticket in tickets:
-        snippet = highlight_snippet(ticket.subject, query)
+    for row in rows:
+        ticket = row[0]
+        rank = float(row[1])
+
+        headline_q = select(
+            func.ts_headline(
+                literal_column("'simple'"),
+                func.coalesce(Ticket.subject, literal_column("''")),
+                ts_query,
+                literal_column("'StartSel=<mark>, StopSel=</mark>, MaxFragments=1, MaxWords=30'")
+            )
+        ).where(Ticket.id == ticket.id)
+        hl_result = await db.execute(headline_q)
+        snippet = hl_result.scalar() or ticket.subject
+
         items.append(SearchResultItem(
             type="ticket",
             id=ticket.id,
             title=ticket.subject,
             snippet=snippet,
-            score=1.0,
+            score=rank,
             metadata={"status": ticket.status.value, "priority": ticket.priority.value},
         ))
     return items, total
@@ -115,49 +116,69 @@ async def search_tickets_fulltext(
 
 async def search_articles_fulltext(
     db: AsyncSession, tenant_id: str, query: str, page: int, page_size: int,
-    filters: Optional[dict] = None, public_only: bool = False,
+    filters: Optional[dict] = None, public_only: bool = False, terms: Optional[list[str]] = None,
 ) -> tuple[list[SearchResultItem], int]:
-    like_pattern = f"%{query}%"
+    if terms is None:
+        terms = query.lower().split()
+    tsquery_str = build_tsquery(terms)
+    if not tsquery_str:
+        return [], 0
 
-    base_filter = [KBArticle.tenant_id == tenant_id]
-    if public_only:
-        base_filter.append(KBArticle.status == ArticleStatus.PUBLISHED)
-        base_filter.append(KBArticle.visibility == "public")
+    ts_vector = func.to_tsvector(
+        literal_column("'simple'"),
+        func.coalesce(KBArticle.title, literal_column("''")) +
+        literal_column("' '") +
+        func.coalesce(KBArticle.body_markdown, literal_column("''"))
+    )
+    ts_query = func.to_tsquery(literal_column("'simple'"), text(f"'{tsquery_str}'"))
 
-    content_filter = (
-        (KBArticle.title.ilike(like_pattern)) |
-        (KBArticle.body_markdown.ilike(like_pattern))
+    base_q = (
+        select(KBArticle, func.ts_rank(ts_vector, ts_query).label("rank"))
+        .where(KBArticle.tenant_id == tenant_id)
+        .where(ts_vector.op("@@")(ts_query))
     )
 
-    count_q = select(func.count(KBArticle.id)).where(*base_filter).where(content_filter)
-    if filters and filters.get("category_id"):
-        count_q = count_q.where(KBArticle.category_id == filters["category_id"])
+    if public_only:
+        base_q = base_q.where(KBArticle.status == ArticleStatus.PUBLISHED)
+        base_q = base_q.where(KBArticle.visibility == ArticleVisibility.PUBLIC)
 
+    if filters and filters.get("category_id"):
+        base_q = base_q.where(KBArticle.category_id == filters["category_id"])
+
+    count_q = select(func.count()).select_from(base_q.subquery())
     total = (await db.execute(count_q)).scalar() or 0
 
-    q = (
-        select(KBArticle)
-        .where(*base_filter)
-        .where(content_filter)
-        .order_by(KBArticle.updated_at.desc())
+    data_q = (
+        base_q
+        .order_by(text("rank DESC"))
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    if filters and filters.get("category_id"):
-        q = q.where(KBArticle.category_id == filters["category_id"])
-
-    result = await db.execute(q)
-    articles = result.scalars().all()
+    result = await db.execute(data_q)
+    rows = result.all()
 
     items = []
-    for article in articles:
-        snippet = highlight_snippet(article.body_markdown, query)
+    for row in rows:
+        article = row[0]
+        rank = float(row[1])
+
+        headline_q = select(
+            func.ts_headline(
+                literal_column("'simple'"),
+                func.coalesce(KBArticle.body_markdown, literal_column("''")),
+                ts_query,
+                literal_column("'StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MaxWords=40'")
+            )
+        ).where(KBArticle.id == article.id)
+        hl_result = await db.execute(headline_q)
+        snippet = hl_result.scalar() or ""
+
         items.append(SearchResultItem(
             type="article",
             id=article.id,
             title=article.title,
             snippet=snippet,
-            score=1.0,
+            score=rank,
             metadata={"status": article.status.value, "slug": article.slug},
         ))
     return items, total
@@ -168,20 +189,20 @@ async def hybrid_search(
     scope: str, page: int, page_size: int,
     filters: Optional[dict] = None, public_only: bool = False,
 ) -> tuple[list[SearchResultItem], int]:
-    expanded_query = await expand_synonyms(db, tenant_id, query)
+    terms = await expand_synonyms(db, tenant_id, query)
     all_items: list[SearchResultItem] = []
     total = 0
 
     if scope in ("all", "tickets") and not public_only:
         ticket_items, ticket_total = await search_tickets_fulltext(
-            db, tenant_id, expanded_query.split("|")[0].strip(), page, page_size, filters
+            db, tenant_id, query, page, page_size, filters, terms
         )
         all_items.extend(ticket_items)
         total += ticket_total
 
     if scope in ("all", "articles"):
         article_items, article_total = await search_articles_fulltext(
-            db, tenant_id, expanded_query.split("|")[0].strip(), page, page_size, filters, public_only
+            db, tenant_id, query, page, page_size, filters, public_only, terms
         )
         all_items.extend(article_items)
         total += article_total

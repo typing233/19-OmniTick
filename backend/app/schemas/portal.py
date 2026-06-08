@@ -35,6 +35,12 @@ class PortalTicketCreate(BaseModel):
     requester_email: Optional[str] = None
 
 
+class PortalGuestTicketCreate(BaseModel):
+    email: str
+    subject: str
+    body: str
+
+
 class PortalTicketOut(BaseModel):
     id: str
     subject: str

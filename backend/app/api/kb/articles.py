@@ -6,8 +6,9 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_tenant_id
+from app.dependencies import get_current_user, get_tenant_id, require_role
 from app.models.user import User
+from app.models.user_role import RoleType
 from app.models.kb import (
     KBArticle, KBArticleVersion, KBTag, KBReview, KBAuditLog,
     ArticleStatus, ArticleVisibility, kb_article_tags,
@@ -16,6 +17,7 @@ from app.models.base import gen_id
 from app.schemas.kb import (
     KBArticleCreate, KBArticleUpdate, KBArticleOut, KBArticleListResponse,
     KBArticleListOut, KBVersionOut, KBRollbackRequest, KBReviewOut, KBReviewAction,
+    KBAuditLogOut,
 )
 
 router = APIRouter(prefix="/kb/articles", tags=["knowledge-base"])
@@ -261,7 +263,7 @@ async def rollback_article(
     article_id: str,
     body: KBRollbackRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(RoleType.ADMIN, RoleType.AGENT)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -358,7 +360,7 @@ async def approve_article(
     article_id: str,
     body: KBReviewAction,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(RoleType.ADMIN, RoleType.AGENT)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -406,7 +408,7 @@ async def reject_article(
     article_id: str,
     body: KBReviewAction,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(RoleType.ADMIN, RoleType.AGENT)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -451,7 +453,7 @@ async def reject_article(
 @router.get("/reviews/pending", response_model=list[KBReviewOut])
 async def list_pending_reviews(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN, RoleType.AGENT)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -461,3 +463,24 @@ async def list_pending_reviews(
         .order_by(KBReview.created_at)
     )
     return result.scalars().all()
+
+
+@router.get("/{article_id}/audit-log", response_model=list[KBAuditLogOut])
+async def get_article_audit_log(
+    article_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    result = await db.execute(
+        select(KBArticle).where(KBArticle.id == article_id, KBArticle.tenant_id == tenant_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    log_result = await db.execute(
+        select(KBAuditLog)
+        .where(KBAuditLog.article_id == article_id)
+        .order_by(KBAuditLog.created_at.desc())
+    )
+    return log_result.scalars().all()

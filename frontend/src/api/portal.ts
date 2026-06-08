@@ -40,6 +40,8 @@ export const portalTicketApi = {
     portalClient.get<{ items: PortalTicket[]; total: number; page: number; page_size: number }>('/portal/tickets', { params }).then(r => r.data),
   create: (data: { subject: string; body: string }) =>
     portalClient.post<PortalTicket>('/portal/tickets', data).then(r => r.data),
+  createGuest: (data: { email: string; subject: string; body: string }) =>
+    portalClient.post<PortalTicket>('/portal/tickets/guest', data).then(r => r.data),
   get: (id: string) => portalClient.get<PortalTicket>(`/portal/tickets/${id}`).then(r => r.data),
   getMessages: (id: string) => portalClient.get<PortalMessage[]>(`/portal/tickets/${id}/messages`).then(r => r.data),
   reply: (id: string, body_text: string) =>

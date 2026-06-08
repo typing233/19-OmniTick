@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Button } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { FileTextOutlined, ReadOutlined, LogoutOutlined } from '@ant-design/icons';
 
@@ -20,23 +20,23 @@ const PortalLayout: React.FC = () => {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', padding: '0 24px' }}>
-        <div style={{ fontSize: 18, fontWeight: 'bold', marginRight: 48, cursor: 'pointer' }} onClick={() => navigate('/portal/tickets')}>
+        <div style={{ fontSize: 18, fontWeight: 'bold', marginRight: 48, cursor: 'pointer' }} onClick={() => navigate('/portal/kb')}>
           OmniTick
         </div>
-        {hasToken && (
-          <>
-            <Menu
-              mode="horizontal"
-              selectedKeys={[selectedKey]}
-              style={{ flex: 1, border: 'none' }}
-              items={[
-                { key: '/portal/tickets', icon: <FileTextOutlined />, label: '我的工单' },
-                { key: '/portal/kb', icon: <ReadOutlined />, label: '帮助中心' },
-              ]}
-              onClick={({ key }) => navigate(key)}
-            />
-            <LogoutOutlined onClick={handleLogout} style={{ cursor: 'pointer', fontSize: 16 }} />
-          </>
+        <Menu
+          mode="horizontal"
+          selectedKeys={[selectedKey]}
+          style={{ flex: 1, border: 'none' }}
+          items={[
+            ...(hasToken ? [{ key: '/portal/tickets', icon: <FileTextOutlined />, label: '我的工单' }] : []),
+            { key: '/portal/kb', icon: <ReadOutlined />, label: '帮助中心' },
+          ]}
+          onClick={({ key }) => navigate(key)}
+        />
+        {hasToken ? (
+          <LogoutOutlined onClick={handleLogout} style={{ cursor: 'pointer', fontSize: 16 }} />
+        ) : (
+          <Button type="link" onClick={() => navigate('/portal/login')}>登录</Button>
         )}
       </Header>
       <Content style={{ maxWidth: 1000, margin: '24px auto', padding: 24, width: '100%' }}>
