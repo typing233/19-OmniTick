@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     imap_poll_interval: int = 60
 
+    openai_api_key: str = ""
+    embedding_model: str = "text-embedding-3-small"
+
     class Config:
         env_file = ".env"
 

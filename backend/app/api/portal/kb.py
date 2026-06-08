@@ -5,8 +5,8 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models.kb import KBArticle, KBCategory, ArticleStatus, ArticleVisibility
 from app.schemas.portal import PortalArticleOut, PortalArticleListResponse
-from app.schemas.kb import KBCategoryTree, KBCategoryOut
-from app.schemas.search import SearchRequest, SearchResponse
+from app.schemas.kb import KBCategoryTree
+from app.schemas.search import SearchRequest
 from app.core.search.engine import hybrid_search
 
 DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
@@ -87,7 +87,7 @@ async def list_categories(
     return roots
 
 
-@router.post("/search", response_model=SearchResponse)
+@router.post("/search")
 async def portal_search(
     body: SearchRequest,
     db: AsyncSession = Depends(get_db),
@@ -103,4 +103,12 @@ async def portal_search(
         filters=body.filters,
         public_only=True,
     )
-    return SearchResponse(items=items, total=total, page=body.page, page_size=body.page_size)
+    portal_items = []
+    for item in items:
+        portal_items.append({
+            "title": item.title,
+            "slug": item.metadata.get("slug", ""),
+            "snippet": item.snippet,
+            "score": item.score,
+        })
+    return {"items": portal_items, "total": total, "page": body.page, "page_size": body.page_size}

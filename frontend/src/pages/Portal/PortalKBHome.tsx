@@ -63,11 +63,11 @@ const PortalKBHome: React.FC = () => {
         <List
           grid={{ gutter: 16, column: 2 }}
           dataSource={displayItems}
-          renderItem={(item: { title: string; slug: string; snippet?: string }) => (
+          renderItem={(item: { title: string; slug?: string; snippet?: string; metadata?: { slug?: string } }) => (
             <List.Item>
               <Card
                 hoverable
-                onClick={() => navigate(`/portal/kb/${item.slug}`)}
+                onClick={() => navigate(`/portal/kb/${item.slug || item.metadata?.slug || ''}`)}
                 style={{ height: '100%' }}
               >
                 <Card.Meta

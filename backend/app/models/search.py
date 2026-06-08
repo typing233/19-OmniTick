@@ -14,6 +14,7 @@ class SearchIndexTicket(Base):
     ticket_id: Mapped[str] = mapped_column(String(36), ForeignKey("tickets.id"), unique=True)
     tenant_id: Mapped[str] = mapped_column(String(36), ForeignKey("tenants.id"), index=True)
     content: Mapped[str] = mapped_column(Text, default="")
+    embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -24,6 +25,7 @@ class SearchIndexArticle(Base):
     article_id: Mapped[str] = mapped_column(String(36), ForeignKey("kb_articles.id"), unique=True)
     tenant_id: Mapped[str] = mapped_column(String(36), ForeignKey("tenants.id"), index=True)
     content: Mapped[str] = mapped_column(Text, default="")
+    embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

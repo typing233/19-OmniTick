@@ -103,6 +103,14 @@ async def create_ticket(
     await _apply_sla_policies(db, ticket, tenant_id)
     await db.commit()
     await db.refresh(ticket, ["labels", "assignee"])
+
+    try:
+        from app.core.search.engine import index_ticket
+        await index_ticket(db, ticket.id, tenant_id)
+        await db.commit()
+    except Exception:
+        pass
+
     return ticket
 
 
@@ -164,6 +172,7 @@ async def update_ticket(
     if body.email_account_id is not None and body.email_account_id != ticket.email_account_id:
         ticket.email_account_id = body.email_account_id
 
+    await _apply_sla_policies(db, ticket, tenant_id)
     await db.commit()
     await db.refresh(ticket, ["labels", "assignee"])
     return ticket
@@ -215,6 +224,10 @@ async def transition_ticket(
         raise HTTPException(status_code=400, detail=str(e))
 
     db.add(audit)
+
+    if body.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+        await _mark_sla_resolution_met(db, ticket_id)
+
     await db.commit()
     await db.refresh(ticket, ["labels", "assignee"])
     return ticket
@@ -370,6 +383,8 @@ async def create_message(
         action="reply",
     ))
 
+    await _mark_sla_response_met(db, ticket_id)
+
     if body.direction == MessageDirection.OUTBOUND and ticket.email_account_id and ticket.requester_email:
         from app.core.email.smtp_sender import send_ticket_reply
         msg.email_message_id = f"<ticket-{ticket_id}-msg-{msg.id}@omnitick>"
@@ -402,6 +417,14 @@ async def create_message(
 
     await db.commit()
     await db.refresh(msg)
+
+    try:
+        from app.core.search.engine import index_ticket
+        await index_ticket(db, ticket_id, tenant_id)
+        await db.commit()
+    except Exception:
+        pass
+
     return msg
 
 
@@ -472,3 +495,37 @@ def _matches_sla_conditions(conditions: dict, ticket: Ticket) -> bool:
         elif ticket.status.value != expected:
             return False
     return True
+
+
+async def _mark_sla_response_met(db: AsyncSession, ticket_id: str):
+    from app.models.automation import SlaTimer
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        select(SlaTimer).where(
+            SlaTimer.ticket_id == ticket_id,
+            SlaTimer.response_met.is_(None),
+            SlaTimer.response_due_at.isnot(None),
+        )
+    )
+    timers = result.scalars().all()
+    now = datetime.now(timezone.utc)
+    for timer in timers:
+        timer.response_met = now <= timer.response_due_at
+
+
+async def _mark_sla_resolution_met(db: AsyncSession, ticket_id: str):
+    from app.models.automation import SlaTimer
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        select(SlaTimer).where(
+            SlaTimer.ticket_id == ticket_id,
+            SlaTimer.resolution_met.is_(None),
+            SlaTimer.resolution_due_at.isnot(None),
+        )
+    )
+    timers = result.scalars().all()
+    now = datetime.now(timezone.utc)
+    for timer in timers:
+        timer.resolution_met = now <= timer.resolution_due_at

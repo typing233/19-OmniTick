@@ -4,8 +4,9 @@ from sqlalchemy import select, func
 from typing import Optional
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_tenant_id
+from app.dependencies import get_current_user, get_tenant_id, require_role
 from app.models.user import User
+from app.models.user_role import RoleType
 from app.models.automation import SlaPolicy, AutomationExecutionLog
 from app.models.base import gen_id
 from app.schemas.automation import (
@@ -33,7 +34,7 @@ async def list_sla_policies(
 async def create_sla_policy(
     body: SlaPolicyCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     policy = SlaPolicy(
@@ -56,7 +57,7 @@ async def update_sla_policy(
     policy_id: str,
     body: SlaPolicyUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(
@@ -86,7 +87,7 @@ async def update_sla_policy(
 async def delete_sla_policy(
     policy_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_role(RoleType.ADMIN)),
     tenant_id: str = Depends(get_tenant_id),
 ):
     result = await db.execute(

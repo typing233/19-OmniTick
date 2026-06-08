@@ -105,6 +105,14 @@ async def create_article(
 
     await db.commit()
     await db.refresh(article, ["tags", "category", "author"])
+
+    try:
+        from app.core.search.engine import index_article
+        await index_article(db, article.id, tenant_id)
+        await db.commit()
+    except Exception:
+        pass
+
     return article
 
 
@@ -189,6 +197,14 @@ async def update_article(
 
     await db.commit()
     await db.refresh(article, ["tags"])
+
+    try:
+        from app.core.search.engine import index_article
+        await index_article(db, article.id, tenant_id)
+        await db.commit()
+    except Exception:
+        pass
+
     return article
 
 

@@ -47,9 +47,9 @@ class SlaScheduler:
                 .where(
                     SlaTimer.breached == False,
                     (
-                        (SlaTimer.response_due_at < now) & (SlaTimer.response_met == None)
+                        (SlaTimer.response_due_at < now) & (SlaTimer.response_met.is_(None))
                     ) | (
-                        (SlaTimer.resolution_due_at < now) & (SlaTimer.resolution_met == None)
+                        (SlaTimer.resolution_due_at < now) & (SlaTimer.resolution_met.is_(None))
                     )
                 )
             )
